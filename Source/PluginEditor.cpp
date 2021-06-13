@@ -29,12 +29,12 @@ DoomTestAudioProcessorEditor::DoomTestAudioProcessorEditor (DoomTestAudioProcess
     addAndMakeVisible(&baseNoteSlider);
 
     numNotesSlider.setSliderStyle(juce::Slider::Slider::RotaryVerticalDrag);
-    numNotesSlider.setRange(0.0, 16.0, 1.0);
+    numNotesSlider.setRange(0.0, 100.0, 1.0);
     numNotesSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 90, 0);
     numNotesSlider.setPopupDisplayEnabled(true, false, this);
     numNotesSlider.setTextValueSuffix(" Notes");
-    numNotesSlider.setValue(processor.numNotes);
-    numNotesSlider.onValueChange = [this] { processor.numNotes = numNotesSlider.getValue(); };
+    numNotesSlider.setValue(processor.rampPower);
+    numNotesSlider.onValueChange = [this] { processor.rampPower = numNotesSlider.getValue(); };
     addAndMakeVisible(&numNotesSlider);
 
     tempoSlider.setSliderStyle(juce::Slider::Slider::RotaryVerticalDrag);
@@ -47,11 +47,11 @@ DoomTestAudioProcessorEditor::DoomTestAudioProcessorEditor (DoomTestAudioProcess
     addAndMakeVisible(&tempoSlider);
 
     zSlider.setSliderStyle(juce::Slider::Slider::RotaryVerticalDrag);
-    zSlider.setRange(0.3, 0.6, 0.05);
+    zSlider.setRange(0.1, 1.0, 0.1);
     zSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 90, 0);
     zSlider.setPopupDisplayEnabled(true, false, this);
     zSlider.setValue(processor.spawnChance);
-    zSlider.onValueChange = [this] { processor.spawnChance = zSlider.getValue(); };
+    zSlider.onValueChange = [this] { processor.noiseScale = zSlider.getValue(); };
     addAndMakeVisible(&zSlider);
 
     widthSlider.setSliderStyle(juce::Slider::Rotary);
@@ -67,7 +67,7 @@ DoomTestAudioProcessorEditor::DoomTestAudioProcessorEditor (DoomTestAudioProcess
     addAndMakeVisible(&widthSlider);
 
     heightSlider.setSliderStyle(juce::Slider::Rotary);
-    heightSlider.setRange(8.0, 32.0, 1.0);
+    heightSlider.setRange(1.0, 64.0, 1.0);
     heightSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 90, 0);
     heightSlider.setPopupDisplayEnabled(true, false, this);
     heightSlider.setTextValueSuffix(" Range");
@@ -80,7 +80,7 @@ DoomTestAudioProcessorEditor::DoomTestAudioProcessorEditor (DoomTestAudioProcess
 
     addAndMakeVisible(randomConfig);
     randomConfig.setButtonText("Random");
-    randomConfig.onClick = [this] { processor.randomNew(); };
+    //randomConfig.onClick = [this] { processor.randomNew(); };
 
     //24 FPS
     startTimerHz(24);
@@ -107,20 +107,20 @@ void DoomTestAudioProcessorEditor::paint (Graphics& g)
 
     for (int row = 0; row < rows; row++) {
         for (int col = 0; col < cols; col++) {
-            int idx = (row % rows) + col*rows;
-            if ((*processor.pixels)(row,col)) {
-                g.fillRect((col * xscale) + xoffset, (row * yscale) + yoffset, xscale, yscale);
-            }
+            g.setColour(Colours::black);
+            g.setOpacity((*processor.pixels)(row, col));
+            g.fillRect((col * xscale) + xoffset, (row * yscale) + yoffset, xscale, yscale);
         }
     }
+
+    g.setColour(Colours::blue);
+    g.fillRect((processor.scrubCol * xscale) + xoffset, (processor.strongestRow * yscale) + yoffset, xscale, yscale);
 
     g.setColour(Colours::red);
     g.setOpacity(0.3);
     g.fillRect(xoffset + (xscale * processor.scrubCol), yoffset, xscale, rows * yscale);
 
     g.setColour (Colours::white);
-    //g.setFont (15.0f);
-    //g.drawFittedText ("Hello World!!!", getLocalBounds(), Justification::centred, 1);
 }
 
 void DoomTestAudioProcessorEditor::resized()

@@ -30,9 +30,9 @@ public:
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
     void releaseResources() override;
 
-    dsp::Matrix<bool> *pixels;
+    dsp::Matrix<float> *pixels;
 
-    int major[8] = { 0,4,7,9,11 };
+    int major[8] = { 0,2,4,5,7,8 };
 
     Perlin perlin;
     float BPM = 60;
@@ -49,9 +49,14 @@ public:
     std::set<int> chosenNotes;
     int baseNote = 50;
     int numNotes = 1;
+    int strongestRow = 0;
+    float noiseScale = 0.1;
+    float ramp(float x);
+    int rampPower = 10;
 
     int scrubCol = 0;
     bool generateNotes = 0;
+    bool isPixelOn(int row, int col);
     int countOnNearby(int targetRow, int targetCol);
     void step();
     void update();

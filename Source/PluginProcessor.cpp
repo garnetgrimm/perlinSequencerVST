@@ -24,7 +24,7 @@ DoomTestAudioProcessor::DoomTestAudioProcessor()
                        )
 #endif
 {
-    pixels = new dsp::Matrix<bool>(16, 8);
+    pixels = new dsp::Matrix <float> (16, 8);
 
     perlinMatrix();
 
@@ -36,51 +36,21 @@ DoomTestAudioProcessor::~DoomTestAudioProcessor()
 
 }
 
-
-void DoomTestAudioProcessor::test_smallMatrix() {
-    (*pixels)(3, 3) = true;
-    (*pixels)(3, 4) = true;
-    (*pixels)(3, 5) = true;
-    (*pixels)(5, 3) = true;
-    (*pixels)(5, 4) = true;
-    (*pixels)(6, 4) = true;
-}
-
-void DoomTestAudioProcessor::test_stringMatrix() {
-    String s =
-        "00000000\n"
-        "000XX000\n"
-        "00000000\n"
-        "00XXXX00\n"
-        "00000000\n"
-        "0XXXXXX0\n"
-        "00000000\n"
-        "00XXXX00\n"
-        "00000000\n"
-        "000XX000\n"
-        "00000000";
-
-    StringArray tokens = StringArray::fromTokens(s, "\n");
-
-    int initRows = tokens.size();
-    int initCols = tokens[0].length();
-
-    for (int i = 0; i < initRows; i++)
-    {
-        for (int n = 0; n < initCols; n++) {
-            if (tokens[i][n] == 'X') (*pixels)(i, n) = true;
-            else (*pixels)(i, n) = false;
-        }
-    }
-}
+float DoomTestAudioProcessor::ramp(float x) {
+    int power = rampPower;
+    float exp = pow(2, -power * (x - 0.5));
+    return 1.0/(1.0+exp);
+};
 
 void DoomTestAudioProcessor::perlinMatrix() {
     int rows = pixels->getNumRows();
     int cols = pixels->getNumColumns();
     for (int row = 0; row < rows; row++) {
         for (int col = 0; col < cols; col++) {
-            float noise = (perlin.noise(row * 0.1, col * 0.1, time) + 1.0) / 2.0;
-            (*pixels)(row, col) = noise < spawnChance ? true : false;
+            float noise = (perlin.noise(row * noiseScale, col * noiseScale, sin(time)) + 1.0) / 2.0;
+            noise *= sin((float(row)/float(rows)) * juce::MathConstants<float>::pi);
+            noise = ramp(noise);
+            (*pixels)(row, col) = noise;
         }
     }
 }
@@ -188,6 +158,13 @@ float DoomTestAudioProcessor::limitSample(float sample) {
     return reverbGain * atan(sample * reverbGain) / MathConstants<float>::halfPi;
 }
 
+// utility comparator function to pass to the sort() module
+bool sortByVal(const std::pair<int, float>& a,
+    const std::pair<int, float>& b)
+{
+    return (a.second < b.second);
+}
+
 void DoomTestAudioProcessor::processBlock (AudioBuffer<float>& buffer, MidiBuffer& midiMessages)
 {
     ScopedNoDenormals noDenormals;
@@ -197,17 +174,33 @@ void DoomTestAudioProcessor::processBlock (AudioBuffer<float>& buffer, MidiBuffe
     int majSize = sizeof(major) / sizeof(int);
     int rows = pixels->getNumRows();
     if (generateNotes) {
-        std::set<int> lastOnNotes = onNotes;
-        onNotes.clear();
+        std::map<int, float> noteMap;
 
         for (int row = 0; row < rows; row++) {
             int col = scrubCol;
-            int offset = major[(row % majSize)] + (row / majSize);
+            int fixedRow = row - (rows / 2);
+            int offset = major[(fixedRow % majSize)] + (fixedRow / majSize);
             int note = baseNote + offset;
-            if ((*pixels)(row, col)) {
-                onNotes.insert(note);
-            }
+            noteMap[row] = (*pixels)(row,col);
         }
+
+        std::vector<std::pair<int, float>> sortVec;
+
+        std::map<int, float> ::iterator it2;
+        for (it2 = noteMap.begin(); it2 != noteMap.end(); it2++)
+        {
+            sortVec.push_back(std::make_pair(it2->first, it2->second));
+        }
+        std::sort(sortVec.begin(), sortVec.end(), sortByVal);
+
+        //float heighestVal = sortVec[sortVec.size() - 1].second;
+        strongestRow = sortVec[sortVec.size() - 1].first;
+
+        std::set<int> lastOnNotes = onNotes;
+        onNotes.clear();
+
+        int newNote = major[(strongestRow % majSize)] + (strongestRow / majSize) + baseNote;
+        onNotes.insert(newNote);
 
         for (int note : lastOnNotes) {
             //if note was being played before and is no longer being played, kill it
@@ -216,38 +209,9 @@ void DoomTestAudioProcessor::processBlock (AudioBuffer<float>& buffer, MidiBuffe
             }
         }
 
-        std::set<int> lastChosenNotes = chosenNotes;
-        chosenNotes.clear();
-        DBG(onNotes.size() << " | " << lastChosenNotes.size() << " | " << chosenNotes.size());
-        String test = "";
         for (int note : onNotes) {
-            test.append(std::to_string(note), 3);
-            test += " ";
-        }
-        DBG(test);
-        
-
-        if (onNotes.size() > 0) {
-            for (int i = 0; i < numNotes; i++) {
-                int idx = rand() % onNotes.size();
-                //int idx = (onNotes.size()-i) % onNotes.size();
-                if (idx > onNotes.size()) continue;
-                std::set<int>::iterator it = onNotes.begin();
-                std::advance(it, idx);
-                int note = *it;
-                chosenNotes.insert(note);
-            }
-        }
-
-        for (int note : lastChosenNotes) {
-            //if note was being played before and is no longer being played, kill it
-            if (chosenNotes.find(note) == chosenNotes.end()) {
-                setNoteNumber(note, false, midiMessages);
-            }   
-        }
-        for (int note : chosenNotes) {
             //if note was not being played before but is now, turn it on
-            if (lastChosenNotes.find(note) == lastChosenNotes.end()) {
+            if (lastOnNotes.find(note) == lastOnNotes.end()) {
                 setNoteNumber(note, true, midiMessages);
             }
         }
@@ -302,6 +266,10 @@ void DoomTestAudioProcessor::setStateInformation (const void* data, int sizeInBy
     // whose contents will have been created by the getStateInformation() call.
 }
 
+bool DoomTestAudioProcessor::isPixelOn(int row, int col) {
+    return (*pixels)(row, col) < spawnChance ? true : false;
+}
+
 
 int DoomTestAudioProcessor::countOnNearby(int targetRow, int targetCol) {
     int rows = pixels->getNumRows();
@@ -314,41 +282,20 @@ int DoomTestAudioProcessor::countOnNearby(int targetRow, int targetCol) {
             if (row == 0 && col == 0) continue;
             if (currRow > rows || currCol > cols) continue;
             if (currRow < 0 || currCol < 0) continue;
-            if ((*pixels)(currRow, currCol)) onCount++;
+            if (isPixelOn(currRow, currCol)) onCount++;
         }
     }
     return onCount;
 }
 
-void DoomTestAudioProcessor::step()
-{
-    int rows = pixels->getNumRows();
-    int cols = pixels->getNumColumns();
-    dsp::Matrix<bool> newPixels(rows, cols);
-    for (int row = 0; row < rows-1; row++) {
-        for (int col = 0; col < cols-1; col++) {
-            int nearby = countOnNearby(row, col);
-            if ((*pixels)(row, col)) {
-                if (nearby <= 1 || nearby >= 4) newPixels(row, col) = false;
-                else newPixels(row, col) = true;
-            }
-            else {
-                if (nearby == 3) newPixels(row, col) = true;
-            }
-        }
-    }
-    (*pixels) = newPixels;
-}
-
 void DoomTestAudioProcessor::update() {
     scrubCol++;
     generateNotes = true;
-    //step();
     if (scrubCol >= pixels->getNumColumns()) {
-        //step();
         scrubCol = 0;
-        time += timeSpeed;
+        //time += timeSpeed;
     }
+    time += timeSpeed;
     perlinMatrix();
     callAfterDelay(BPM_TO_MS(BPM), [&] {update(); });
 }
@@ -358,26 +305,6 @@ void DoomTestAudioProcessor::timerCallback()
     update();
 }
 
-void DoomTestAudioProcessor::randomNew()
-{
-    int rows = pixels->getNumRows();
-    int cols = pixels->getNumColumns();
-
-    for (int row = 0; row < rows - 1; row++) {
-        for (int col = 0; col < cols - 1; col++) {
-            (*pixels)(row, col) = !((random.nextInt() % 3) - 1);
-            /*
-            (*pixels)(3, 3 + testIdx) = true;
-            (*pixels)(3, 4 + testIdx) = true;
-            (*pixels)(3, 5 + testIdx) = true;
-            (*pixels)(5, 3 + testIdx) = true;
-            (*pixels)(5, 4 + testIdx) = true;
-            (*pixels)(6, 4 + testIdx) = true;
-            */
-        }
-    }
-}
-
 void DoomTestAudioProcessor::doResize(int newRows, int newCols) {
     int rows = pixels->getNumRows();
     int cols = pixels->getNumColumns();
@@ -385,7 +312,7 @@ void DoomTestAudioProcessor::doResize(int newRows, int newCols) {
     int xoffset = (newCols - cols) / 2;
     int yoffset = (newRows - rows) / 2;
 
-    dsp::Matrix<bool> *newPixels = new dsp::Matrix<bool>(newRows, newCols);
+    dsp::Matrix<float> *newPixels = new dsp::Matrix<float>(newRows, newCols);
     for (int row = 0; row < rows - 1; row++) {
         for (int col = 0; col < cols - 1; col++) {
             int currCol = col + xoffset;
